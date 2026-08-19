@@ -1,5 +1,9 @@
 'use strict';
 
+// NEVER log process.env values that contain credentials (connection strings, API keys,
+// secrets) directly or in full — logs are persisted by hosting providers and can leak.
+// Log only non-sensitive derived info (host, db name, "configured: true/false").
+
 /**
  * Redis connection config for BullMQ / ioredis.
  * Supports both redis:// (plain) and rediss:// (TLS — required for Upstash).
