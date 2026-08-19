@@ -23,6 +23,7 @@ app.get('/health', (_req, res) => {
 
 // ── API Routes (mounted after Step 2+) ───────────────────────────────────────
 app.use('/api/auth',       require('./routes/auth'));
+app.use('/api/courses',    require('./routes/courses'));
 app.use('/api/lectures',   require('./routes/lectures'));
 app.use('/api/attempts',   require('./routes/attempts'));
 app.use('/api/students',   require('./routes/students'));
