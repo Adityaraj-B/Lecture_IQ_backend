@@ -10,8 +10,13 @@ const PORT = process.env.PORT || 3000;
 async function start() {
   try {
     await connectDB();
+    const isProduction = process.env.NODE_ENV === 'production';
     app.listen(PORT, () => {
-      console.log(`[Server] LectureIQ backend running on http://localhost:${PORT}`);
+      if (isProduction) {
+        console.log(`[Server] LectureIQ backend running on port ${PORT} (production)`);
+      } else {
+        console.log(`[Server] LectureIQ backend running on http://localhost:${PORT}`);
+      }
       console.log(`[Server] Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log(`[Server] STT Provider: ${process.env.STT_PROVIDER || 'mock'}`);
       console.log(`[Server] LLM Provider: ${process.env.LLM_PROVIDER || 'mock'}`);
