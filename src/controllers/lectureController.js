@@ -389,12 +389,25 @@ async function getTranscript(req, res, next) {
 async function getUserLectures(req, res, next) {
   try {
     const lectures = await Lecture.find({ professorId: req.user.id })
-      .sort({ createdAt: -1 });
-    res.json(lectures);
+      .sort({ createdAt: -1 })
+      .populate('courseId', 'name code'); // populate course name & code
+
+    // Serialize: merge courseId fields into the lecture object
+    const result = lectures.map((l) => {
+      const obj = l.toObject();
+      const course = obj.courseId; // populated doc or null
+      obj.courseId = course?._id?.toString() ?? obj.courseId?.toString();
+      obj.courseName = course?.name ?? '';
+      obj.courseCode = course?.code ?? '';
+      return obj;
+    });
+
+    res.json(result);
   } catch (err) {
     next(err);
   }
 }
+
 
 module.exports = {
   startLecture,
