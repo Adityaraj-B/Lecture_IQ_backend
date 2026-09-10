@@ -20,7 +20,7 @@ const { getLectureAttempts } = require('../controllers/attemptController');
 router.get('/', requireAuth, requireRole('professor'), getUserLectures);
 
 // GET /api/lectures/:id/attempts — returns attempts for a lecture
-router.get('/:id/attempts', requireAuth, requireRole('professor'), getLectureAttempts);
+router.get('/:id/attempts', requireAuth, requireRole('professor', 'admin'), getLectureAttempts);
 
 // POST /api/lectures/start — professor creates a new lecture session
 router.post('/start', requireAuth, requireRole('professor'), startLecture);

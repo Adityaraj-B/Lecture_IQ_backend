@@ -326,7 +326,26 @@ async function publishLecture(req, res, next) {
 
     await Lecture.findByIdAndUpdate(lectureId, { $set: { status: 'published' } });
 
-    // ── Write to Firestore for real-time delivery ─────────────────────────────
+    // ── Write activeQuiz to Course document in MongoDB (polling-based real-time) ──
+    // Students poll GET /api/courses/:id/active-quiz every 5 s.
+    // This update makes the quiz appear within 5 s of publish — no Firebase needed.
+    await Course.findByIdAndUpdate(
+      lecture.courseId,
+      {
+        $set: {
+          activeQuiz: {
+            mcqSetId: mcqSet._id,
+            lectureId: lecture._id,
+            lectureTitle: lecture.title,
+            publishedAt,
+            questionCount: mcqSet.questions.length,
+          },
+        },
+      }
+    );
+    console.log(`[Lectures] activeQuiz written to Course ${lecture.courseId} in MongoDB`);
+
+    // ── Also write to Firestore if credentials available (instant push) ───────
     const db = getFirestore();
     if (db) {
       await db.doc(`courses/${lecture.courseId}`).set(
@@ -334,7 +353,9 @@ async function publishLecture(req, res, next) {
           activeQuiz: {
             mcqSetId: mcqSet._id.toString(),
             lectureId: lectureId.toString(),
+            lectureTitle: lecture.title,
             publishedAt: publishedAt.toISOString(),
+            questionCount: mcqSet.questions.length,
           },
         },
         { merge: true }

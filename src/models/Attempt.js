@@ -40,8 +40,13 @@ const AttemptSchema = new Schema(
   { timestamps: true }
 );
 
-// Index for quick per-student and per-lecture lookups
+// Per-student + per-lecture lookup (prevents double attempts)
 AttemptSchema.index({ studentId: 1, lectureId: 1 });
+// Per-quiz lookup for professor
 AttemptSchema.index({ mcqSetId: 1 });
+// Recent attempts for student dashboard (sorted by time)
+AttemptSchema.index({ studentId: 1, submittedAt: -1 });
+// Real-time professor feed (newest attempts for a lecture)
+AttemptSchema.index({ lectureId: 1, submittedAt: -1 });
 
 module.exports = mongoose.model('Attempt', AttemptSchema);
