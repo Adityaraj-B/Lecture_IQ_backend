@@ -88,8 +88,8 @@ async function getStudentQuizzes(req, res, next) {
 // ─────────────────────────────────────────────────────────────────────────────
 async function getStudentDashboard(req, res, next) {
   try {
-    // Support both /me/dashboard and /:id/dashboard
-    const studentId = req.params.id === 'me' ? req.user.id : req.params.id;
+    // Support both /me/dashboard (params.id is undefined) and /:id/dashboard
+    const studentId = (!req.params.id || req.params.id === 'me') ? req.user.id : req.params.id;
 
     if (req.user.role !== 'admin' && req.user.id !== studentId) {
       return res.status(403).json({ error: 'Forbidden — insufficient role' });
