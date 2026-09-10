@@ -9,12 +9,12 @@ const User = require('../models/User');
 const { createError } = require('../middleware/errorHandler');
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /api/students/:id/quizzes
+// GET /api/students/:id/quizzes (or /me/quizzes)
 // Lists published quizzes for the student's enrolled courses
 // ─────────────────────────────────────────────────────────────────────────────
 async function getStudentQuizzes(req, res, next) {
   try {
-    const { id: studentId } = req.params;
+    const studentId = (!req.params.id || req.params.id === 'me') ? req.user.id : req.params.id;
 
     // Only allow students to view their own data (or admin)
     if (req.user.role !== 'admin' && req.user.id !== studentId) {
@@ -263,4 +263,97 @@ async function getStudentDashboard(req, res, next) {
   }
 }
 
-module.exports = { getStudentQuizzes, getStudentDashboard };
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/students/:id/feedback
+// Returns professor feedback and AI-synthesized concept diagnostics
+// ─────────────────────────────────────────────────────────────────────────────
+async function getStudentFeedback(req, res, next) {
+  try {
+    const studentId = (!req.params.id || req.params.id === 'me') ? req.user.id : req.params.id;
+
+    if (req.user.role !== 'admin' && req.user.id !== studentId) {
+      return res.status(403).json({ error: 'Forbidden — insufficient role' });
+    }
+
+    const studentObjId = new mongoose.Types.ObjectId(studentId);
+    const Feedback = require('../models/Feedback');
+
+    // 1. Fetch direct professor feedback
+    const dbFeedback = await Feedback.find({ studentId: studentObjId }).sort({ createdAt: -1 });
+
+    const classInsights = [];
+    const doubtResolutions = [];
+
+    for (const f of dbFeedback) {
+      const item = {
+        id: f._id.toString(),
+        type: f.type,
+        title: f.title,
+        message: f.message,
+        conceptName: f.conceptName,
+        timestamp: f.createdAt,
+        isResolved: f.isResolved,
+      };
+      if (f.type === 'doubtResolution') doubtResolutions.push(item);
+      else classInsights.push(item);
+    }
+
+    // 2. Synthesize Concept Diagnostics
+    // Reusing the concept mastery logic to generate feedback for weak/strong concepts
+    const attempts = await Attempt.find({ studentId: studentObjId }).populate('conceptBreakdown.conceptId', 'name');
+    
+    const conceptMap = new Map();
+    for (const a of attempts) {
+      for (const cb of a.conceptBreakdown) {
+        if (!cb.conceptId) continue;
+        const cId = cb.conceptId._id.toString();
+        if (!conceptMap.has(cId)) {
+          conceptMap.set(cId, { name: cb.conceptId.name, correct: 0, total: 0 });
+        }
+        const data = conceptMap.get(cId);
+        data.correct += cb.correct;
+        data.total += cb.total;
+      }
+    }
+
+    const conceptDiagnostics = [];
+    for (const [cId, data] of conceptMap.entries()) {
+      if (data.total === 0) continue;
+      const pct = data.correct / data.total;
+
+      if (pct < 0.60) {
+        conceptDiagnostics.push({
+          id: `diag_weak_${cId}`,
+          type: 'conceptDiagnostic',
+          title: 'Review Needed: ' + data.name,
+          message: `Your mastery is at ${Math.round(pct * 100)}%. Consider reviewing the lecture transcript or taking a spaced recap.`,
+          conceptName: data.name,
+          timestamp: new Date(),
+        });
+      } else if (pct >= 0.85 && data.total >= 3) {
+        conceptDiagnostics.push({
+          id: `diag_strong_${cId}`,
+          type: 'conceptDiagnostic',
+          title: 'Mastered: ' + data.name,
+          message: `Great job! Your mastery is at ${Math.round(pct * 100)}%. You've solidly understood this concept.`,
+          conceptName: data.name,
+          timestamp: new Date(),
+        });
+      }
+    }
+
+    return res.json({
+      classInsights,
+      conceptDiagnostics,
+      doubtResolutions,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = {
+  getStudentQuizzes,
+  getStudentDashboard,
+  getStudentFeedback,
+};

@@ -227,4 +227,43 @@ async function getLectureAnalytics(req, res, next) {
   }
 }
 
-module.exports = { getLectureAnalytics, getProfessorOverallAnalytics };
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/professors/:id/feedback
+// Send manual feedback from professor to a student
+// ─────────────────────────────────────────────────────────────────────────────
+async function sendStudentFeedback(req, res, next) {
+  try {
+    const professorId = req.params.id === 'me' ? req.user.id : req.params.id;
+
+    if (req.user.role !== 'admin' && req.user.id !== professorId) {
+      return res.status(403).json({ error: 'Forbidden — insufficient role' });
+    }
+
+    const Feedback = require('../models/Feedback');
+    const { studentId, title, message, type = 'classInsight', conceptName } = req.body;
+
+    if (!studentId || !title || !message) {
+      throw createError(400, 'studentId, title, and message are required');
+    }
+
+    const feedback = new Feedback({
+      professorId,
+      studentId,
+      title,
+      message,
+      type,
+      conceptName,
+    });
+
+    await feedback.save();
+    return res.status(201).json(feedback);
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = {
+  getProfessorOverallAnalytics,
+  getLectureAnalytics,
+  sendStudentFeedback,
+};
