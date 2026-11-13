@@ -2,6 +2,7 @@ import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createApp } from '../src/app.js';
 import { hashPassword, signToken, verifyPassword, verifyToken } from '../src/services/auth.js';
+import { purgeLegacySeed } from '../src/services/testAccounts.js';
 import { Db } from '../src/store/db.js';
 
 const SECRET = 'test-secret';
@@ -169,38 +170,60 @@ test('rejects bad credentials, missing sessions and wrong roles', async () => {
   assert.equal(short.status, 400);
 });
 
-test('demo sign-in seeds a shared class with history, once', async () => {
+test('test sign-in gives real, empty accounts that work end to end', { timeout: 10_000 }, async () => {
   const [s1, s2] = await Promise.all([
     call('POST', '/v1/auth/demo', { body: { role: 'student' } }),
     call('POST', '/v1/auth/demo', { body: { role: 'student' } }),
   ]);
   assert.equal(s1.status, 200);
-  assert.equal(s1.body.user.id, s2.body.user.id);
+  assert.equal(s1.body.user.id, s2.body.user.id); // concurrent first sign-ins create one account
+  assert.equal(s1.body.user.name, 'Test Student');
   const prof = await call('POST', '/v1/auth/demo', { body: { role: 'professor' } });
   assert.equal(prof.body.user.role, 'professor');
 
-  const list = await call('GET', '/v1/assignments', { token: s1.body.token });
-  const done = list.body.assignments.filter((a) => a.submission);
-  const pending = list.body.assignments.filter((a) => !a.submission);
-  assert.equal(done.length, 4);
-  assert.equal(pending.length, 1);
-  assert.ok(pending[0].questions.every((q) => !('answerIndex' in q)));
-  assert.ok(done.every((a) => new Date(a.submission.submittedAt) <= new Date()));
+  // Nothing pre-made: no classes, quizzes or results.
+  assert.deepEqual((await call('GET', '/v1/courses', { token: s1.body.token })).body.courses, []);
+  assert.deepEqual((await call('GET', '/v1/assignments', { token: s1.body.token })).body.assignments, []);
+  assert.equal((await call('GET', '/v1/analytics/overview', { token: prof.body.token })).body.totals.assignments, 0);
 
-  const overview = await call('GET', '/v1/analytics/overview', { token: prof.body.token });
-  assert.equal(overview.body.totals.students, 8);
-  assert.equal(overview.body.totals.assignments, 5);
-  assert.ok(overview.body.totals.completion < 1); // the newest quiz is still open
-
-  // Publishing as the demo professor reaches the demo student live.
+  // The real flow: create a class, join by code, publish, receive live.
+  const course = (await call('POST', '/v1/courses', { token: prof.body.token, body: { name: 'Test class' } })).body.course;
+  assert.equal((await call('POST', '/v1/courses/join', { token: s1.body.token, body: { code: course.code } })).status, 200);
   const events = await openEvents(s1.body.token);
   await events.next('ready');
-  const course = (await call('GET', '/v1/courses', { token: prof.body.token })).body.courses.find((c) => c.code === 'DEMO42');
   await call('POST', '/v1/assignments', { token: prof.body.token, body: { courseId: course.id, title: 'Live', questions: QUESTIONS } });
   assert.equal((await events.next('assignment.published')).assignment.title, 'Live');
   events.close();
 
   assert.equal((await call('POST', '/v1/auth/demo', { body: { role: 'admin' } })).status, 400);
+  assert.equal((await call('POST', '/v1/auth/demo', { body: { role: '__proto__' } })).status, 400);
+});
+
+test('old demo seed data is purged; real data is kept', async () => {
+  const db = await Db.open(null);
+  const d = db.data;
+  d.users.push(
+    { id: 'fakeProf', email: 'professor@demo.lectureiq', role: 'professor' },
+    { id: 'fakeStu', email: 'student1@demo.lectureiq', role: 'student' },
+    { id: 'realProf', email: 'prof@uni.edu', role: 'professor' },
+    { id: 'realStu', email: 'stu@uni.edu', role: 'student' },
+  );
+  d.courses.push(
+    { id: 'fakeCourse', professorId: 'fakeProf', studentIds: ['fakeStu', 'realStu'] },
+    { id: 'realCourse', professorId: 'realProf', studentIds: ['realStu', 'fakeStu'] },
+  );
+  d.assignments.push({ id: 'fakeQuiz', courseId: 'fakeCourse', professorId: 'fakeProf' }, { id: 'realQuiz', courseId: 'realCourse', professorId: 'realProf' });
+  d.submissions.push(
+    { id: 's1', assignmentId: 'fakeQuiz', studentId: 'realStu' },
+    { id: 's2', assignmentId: 'realQuiz', studentId: 'fakeStu' },
+    { id: 's3', assignmentId: 'realQuiz', studentId: 'realStu' },
+  );
+
+  assert.deepEqual(purgeLegacySeed(db), { users: 2, courses: 1, assignments: 1, submissions: 2 });
+  assert.deepEqual(d.users.map((u) => u.id), ['realProf', 'realStu']);
+  assert.deepEqual(d.courses, [{ id: 'realCourse', professorId: 'realProf', studentIds: ['realStu'] }]);
+  assert.deepEqual(d.submissions.map((s) => s.id), ['s3']);
+  assert.equal(purgeLegacySeed(db), null); // idempotent
 });
 
 test('tokens: forged or expired tokens are rejected', () => {

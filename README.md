@@ -38,7 +38,7 @@ The free instance sleeps after ~15 idle minutes and takes about a minute to wake
 | `GET /health` | Public status: which keys are configured, storage kind, demo mode. |
 | `POST /v1/transcribe` | multipart `file` (+ `subject`, `previousText`). |
 | `POST /v1/quiz` | `{ transcript, count, difficulty, subject }` → questions. |
-| `POST /v1/auth/register` · `/login` · `/demo` · `GET /v1/auth/me` | Accounts; `/demo` signs in as the seeded demo professor or student when `DEMO_MODE` is on. |
+| `POST /v1/auth/register` · `/login` · `/demo` · `GET /v1/auth/me` | Accounts; `/demo` signs in to the real, empty test professor or student account when `DEMO_MODE` is on. |
 | `GET/POST /v1/courses` · `POST /v1/courses/join` · `DELETE /v1/courses/:id/membership` | Classes and join codes. |
 | `GET/POST /v1/assignments` · `POST /:id/submit` · `GET /:id/results` · `DELETE /:id` | Published quizzes, grading, per-quiz analytics. |
 | `GET /v1/analytics/overview` | Professor dashboard. |

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { config } from '../config.js';
 import { hashPassword, signToken, verifyPassword } from '../services/auth.js';
-import { DEMO_EMAILS, ensureDemo } from '../services/demo.js';
+import { TEST_ACCOUNTS, testAccount } from '../services/testAccounts.js';
 import { newId } from '../store/db.js';
 
 const ROLES = ['student', 'professor'];
@@ -51,14 +51,12 @@ export function authRouter({ db, secret, authenticate }) {
     }
   });
 
-  /** POST /v1/auth/demo { role }: signs in as the seeded demo professor or student. */
+  /** POST /v1/auth/demo { role }: signs in to the real, empty test professor or student account. */
   router.post('/demo', async (req, res, next) => {
     try {
-      if (!config.demoMode) return res.status(404).json({ error: 'Demo sign-in is turned off on this server' });
-      const email = DEMO_EMAILS[req.body?.role];
-      if (!email) return res.status(400).json({ error: 'Choose student or professor' });
-      await ensureDemo(db);
-      res.json(session(db.userByEmail(email)));
+      if (!config.demoMode) return res.status(404).json({ error: 'Test sign-in is turned off on this server' });
+      if (!Object.hasOwn(TEST_ACCOUNTS, req.body?.role)) return res.status(400).json({ error: 'Choose student or professor' });
+      res.json(session(await testAccount(db, req.body.role)));
     } catch (err) {
       next(err);
     }

@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { createApp } from './app.js';
 import { config, describeConfig } from './config.js';
+import { purgeLegacySeed } from './services/testAccounts.js';
 import { Db } from './store/db.js';
 import { fileStore } from './store/fileStore.js';
 import { mongoStore } from './store/mongoStore.js';
@@ -9,6 +10,14 @@ const store = config.mongo.uri
   ? await mongoStore(config.mongo.uri, config.mongo.dbName)
   : fileStore(path.join(config.dataDir, 'db.json'));
 const db = await Db.open(store);
+
+// Earlier versions seeded fake demo data; remove it so only real data remains.
+const purged = purgeLegacySeed(db);
+if (purged) {
+  await db.flush();
+  console.log('[db] removed old demo seed data:', purged);
+}
+
 const app = createApp({ db, secret: config.auth.secret });
 
 const server = app.listen(config.port, () => {

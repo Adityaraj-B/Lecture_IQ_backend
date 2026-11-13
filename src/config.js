@@ -30,7 +30,7 @@ export const config = {
     from: mongo.from,
     dbName: env.MONGODB_DB || 'lectureiq_app',
   },
-  /** One-tap demo sign-in with seeded data. Set DEMO_MODE=false for real classes. */
+  /** One-tap sign-in to real, empty test accounts (professor and student). Set DEMO_MODE=false to hide it. */
   demoMode: env.DEMO_MODE !== 'false',
   auth: {
     /** Signs session tokens. Without it a random one is used, so sessions end on restart. */
