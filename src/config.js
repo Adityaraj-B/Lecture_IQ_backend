@@ -5,13 +5,29 @@ const env = process.env;
 // Secrets come only from the environment: backend/.env locally, the Render dashboard in production.
 const authSecret = env.AUTH_SECRET || env.JWT_SECRET || '';
 
+/**
+ * MONGODB_URI (or MONGO_URI), else any variable whose value is a MongoDB connection
+ * string, so a differently named key in the dashboard still works. Values are trimmed
+ * because pasted strings often carry a trailing newline.
+ */
+function findMongoUri() {
+  for (const name of ['MONGODB_URI', 'MONGO_URI']) {
+    if (env[name]?.trim()) return { uri: env[name].trim(), from: name };
+  }
+  const hit = Object.entries(env).find(([, v]) => /^mongodb(\+srv)?:\/\//.test(v?.trim() ?? ''));
+  return hit ? { uri: hit[1].trim(), from: hit[0] } : { uri: '', from: null };
+}
+const mongo = findMongoUri();
+
 export const config = {
   port: Number(env.PORT) || 8080,
   appKey: env.APP_KEY || '',
   /** Local fallback storage when no MongoDB is configured. */
   dataDir: env.DATA_DIR || 'data',
   mongo: {
-    uri: env.MONGODB_URI || env.MONGO_URI || '',
+    uri: mongo.uri,
+    /** Which environment variable the connection string came from (for the startup log). */
+    from: mongo.from,
     dbName: env.MONGODB_DB || 'lectureiq_app',
   },
   /** One-tap demo sign-in with seeded data. Set DEMO_MODE=false for real classes. */

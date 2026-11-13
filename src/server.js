@@ -16,10 +16,17 @@ const server = app.listen(config.port, () => {
   if (!config.auth.secretConfigured) {
     console.warn('[auth] AUTH_SECRET not set: using a random key, so everyone is signed out on restart');
   }
-  if (!config.mongo.uri) {
+  if (config.mongo.uri) {
+    console.log(`[db] MongoDB connected (database "${config.mongo.dbName}", from ${config.mongo.from})`);
+  } else {
     // Render sets RENDER=true. Its disk is wiped on every sleep and redeploy, so a file there loses everything.
     if (process.env.RENDER) {
-      console.warn('[db] WARNING: MONGODB_URI is not set. Data is stored on Render\'s temporary disk and will be LOST on the next sleep or deploy.');
+      console.warn(
+        '[db] WARNING: no MongoDB connection string found (looked for MONGODB_URI, MONGO_URI, or any value starting ' +
+          "with mongodb+srv://). Data is stored on Render's temporary disk and will be LOST on the next sleep or deploy.",
+      );
+      // Names only, never values: helps spot a misnamed or missing key in the dashboard.
+      console.warn('[db] environment variable names present:', Object.keys(process.env).filter((k) => !/^(npm_|RENDER_|NODE_|PATH$|HOME$|HOSTNAME$|PWD$|SHLVL$|_$)/.test(k)).sort().join(', '));
     } else {
       console.log(`[db] using local file storage in ${config.dataDir}/`);
     }
