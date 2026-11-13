@@ -149,3 +149,96 @@ export function professorOverview({ courses, assignments, submissionsOf, nameOf 
     students,
   };
 }
+
+const WEAK_BELOW = 0.6;
+const STRONG_FROM = 0.8;
+
+/**
+ * Everything a professor sees about one student, limited to quizzes published in
+ * `courses` (the professor's classes this student is in). Newest quiz first.
+ */
+export function studentReport({ studentId, courses, assignments, submissionsOf }) {
+  const courseName = new Map(courses.map((c) => [c.id, c.name]));
+  const tally = topicTally();
+  const mistakes = [];
+  const ratios = [];
+  const durations = [];
+  let lastActiveAt = null;
+
+  const history = [...assignments]
+    .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt))
+    .map((a) => {
+      const subs = submissionsOf(a.id);
+      const mine = subs.find((s) => s.studentId === studentId);
+      const others = subs.filter((s) => s.studentId !== studentId);
+      const entry = {
+        assignmentId: a.id,
+        title: a.title,
+        courseId: a.courseId,
+        courseName: courseName.get(a.courseId) ?? '',
+        publishedAt: a.publishedAt,
+        questionCount: a.questions.length,
+        classAverage: mean(subs.map(ratioOf)),
+        classSubmitted: subs.length,
+        submitted: Boolean(mine),
+      };
+      if (!mine) return entry;
+
+      const ratio = ratioOf(mine);
+      ratios.push(ratio);
+      durations.push(mine.durationMs);
+      if (!lastActiveAt || mine.submittedAt > lastActiveAt) lastActiveAt = mine.submittedAt;
+      a.questions.forEach((q, i) => {
+        const chosen = mine.answers[i];
+        tally.add(q.topic, chosen === q.answerIndex);
+        if (chosen !== q.answerIndex) {
+          mistakes.push({
+            assignmentId: a.id,
+            title: a.title,
+            submittedAt: mine.submittedAt,
+            question: q.question,
+            topic: q.topic,
+            chosen: chosen == null ? null : q.options[chosen],
+            correct: q.options[q.answerIndex],
+          });
+        }
+      });
+      return {
+        ...entry,
+        score: mine.score,
+        total: mine.total,
+        ratio,
+        durationMs: mine.durationMs,
+        submittedAt: mine.submittedAt,
+        // Where this score sits among everyone who took the quiz (1 = best).
+        placement: 1 + others.filter((s) => ratioOf(s) > ratio).length,
+      };
+    });
+
+  const topics = tally.list();
+  const taken = history.filter((h) => h.submitted).reverse(); // oldest first, for trends
+  const recent = taken.slice(-3).map((h) => h.ratio);
+  const earlier = taken.slice(0, -3).map((h) => h.ratio);
+
+  return {
+    stats: {
+      assigned: history.length,
+      completed: ratios.length,
+      missed: history.length - ratios.length,
+      completion: history.length ? ratios.length / history.length : null,
+      average: mean(ratios),
+      // Class average on the same quizzes this student took: a fair comparison.
+      classAverage: mean(taken.map((h) => h.classAverage).filter((v) => v != null)),
+      best: ratios.length ? Math.max(...ratios) : null,
+      worst: ratios.length ? Math.min(...ratios) : null,
+      averageDurationMs: durations.length ? Math.round(mean(durations)) : null,
+      recentChange: earlier.length && recent.length ? mean(recent) - mean(earlier) : null,
+      lastActiveAt,
+    },
+    history,
+    topics,
+    weakTopics: topics.filter((t) => t.accuracy < WEAK_BELOW).slice(0, 4),
+    strongTopics: topics.filter((t) => t.accuracy >= STRONG_FROM).reverse().slice(0, 4),
+    mistakes: mistakes.sort((a, b) => b.submittedAt.localeCompare(a.submittedAt)).slice(0, 8),
+  };
+}

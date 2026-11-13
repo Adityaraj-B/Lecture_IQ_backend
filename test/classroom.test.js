@@ -241,3 +241,70 @@ test('passwords: hash round-trips and rejects wrong input', async () => {
   assert.ok(!(await verifyPassword('wrong horse', hash)));
   assert.ok(!(await verifyPassword('x', 'not-a-hash')));
 });
+
+test('professor student analytics: list, profile, weak topics, privacy', { timeout: 10_000 }, async () => {
+  const reg = async (role, name, email) =>
+    (await call('POST', '/v1/auth/register', { body: { role, name, email, password: 'password1' } })).body;
+  const profA = await reg('professor', 'Prof A', 'a@prof.edu');
+  const profB = await reg('professor', 'Prof B', 'b@prof.edu');
+  const ria = await reg('student', 'Ria', 'ria@uni.edu');
+  const sam = await reg('student', 'Sam', 'sam@uni.edu');
+
+  const courseA = (await call('POST', '/v1/courses', { token: profA.token, body: { name: 'Algorithms' } })).body.course;
+  const courseB = (await call('POST', '/v1/courses', { token: profB.token, body: { name: 'Other class' } })).body.course;
+  for (const s of [ria, sam]) await call('POST', '/v1/courses/join', { token: s.token, body: { code: courseA.code } });
+  await call('POST', '/v1/courses/join', { token: ria.token, body: { code: courseB.code } });
+
+  let n = 0;
+  const q = (topic, answerIndex = 0) => ({ question: `About ${topic} #${++n}?`, options: ['w', 'x', 'y', 'z'], answerIndex, explanation: 'e', topic });
+  const publish = async (token, courseId, title, questions) =>
+    (await call('POST', '/v1/assignments', { token, body: { courseId, title, questions } })).body.assignment;
+  const quiz1 = await publish(profA.token, courseA.id, 'Q1', [q('Sorting'), q('Graphs'), q('Graphs')]);
+  const quiz2 = await publish(profA.token, courseA.id, 'Q2', [q('Sorting'), q('Graphs')]);
+  await publish(profA.token, courseA.id, 'Q3 (nobody took it)', [q('Hashing')]);
+  const other = await publish(profB.token, courseB.id, 'Secret', [q('Private')]);
+  const submit = (s, a, answers) => call('POST', `/v1/assignments/${a.id}/submit`, { token: s.token, body: { answers, durationMs: 60_000 } });
+
+  await submit(ria, quiz1, [0, 1, 1]); // Sorting right, Graphs wrong twice
+  await submit(ria, quiz2, [0, 1]);
+  await submit(sam, quiz1, [0, 0, 0]);
+  await submit(ria, other, [0]); // Prof A must never see this
+
+  const list = (await call('GET', '/v1/students', { token: profA.token })).body;
+  assert.deepEqual(list.students.map((s) => s.name), ['Ria', 'Sam']);
+  const [riaRow, samRow] = list.students;
+  assert.equal(samRow.rank, 1);
+  assert.equal(riaRow.rank, 2);
+  assert.equal(riaRow.assigned, 3);
+  assert.equal(riaRow.completed, 2);
+  assert.equal(riaRow.missed, 1);
+  assert.equal(riaRow.weakTopics[0].topic, 'Graphs');
+  assert.equal(riaRow.weakTopics[0].accuracy, 0);
+  assert.ok(riaRow.joinedAt === undefined && riaRow.courses[0].joinedAt); // join date recorded per class
+
+  const profile = (await call('GET', `/v1/students/${ria.user.id}`, { token: profA.token })).body;
+  assert.equal(profile.student.email, 'ria@uni.edu');
+  assert.deepEqual(profile.courses.map((c) => c.name), ['Algorithms']); // not Prof B's class
+  assert.ok(profile.history.every((h) => h.title !== 'Secret'));
+  assert.ok(profile.topics.every((t) => t.topic !== 'Private'));
+  assert.deepEqual(profile.history.map((h) => h.title), ['Q3 (nobody took it)', 'Q2', 'Q1']); // newest first
+  const h1 = profile.history.find((h) => h.title === 'Q1');
+  assert.equal(h1.score, 1);
+  assert.equal(h1.placement, 2); // Sam scored higher on Q1
+  assert.equal(h1.classSubmitted, 2);
+  assert.equal(profile.history[0].submitted, false);
+  assert.equal(profile.stats.average, (1 / 3 + 1 / 2) / 2);
+  assert.equal(profile.rank, 2);
+  assert.equal(profile.rankedCount, 2);
+  assert.equal(profile.mistakes.length, 3);
+  assert.deepEqual(profile.mistakes[0], { ...profile.mistakes[0], topic: 'Graphs', chosen: 'x', correct: 'w' });
+  assert.equal(profile.strongTopics[0].topic, 'Sorting');
+
+  // Who took a quiz, on the professor's quiz list.
+  const listed = (await call('GET', '/v1/assignments', { token: profA.token })).body.assignments.find((a) => a.id === quiz1.id);
+  assert.deepEqual(listed.submittedBy.map((s) => s.name).sort(), ['Ria', 'Sam']);
+
+  // Privacy: another professor can't open Sam (not in their classes); students can't use this at all.
+  assert.equal((await call('GET', `/v1/students/${sam.user.id}`, { token: profB.token })).status, 404);
+  assert.equal((await call('GET', '/v1/students', { token: ria.token })).status, 403);
+});

@@ -38,7 +38,17 @@ export function studentView(db, a, studentId) {
 
 function professorView(db, a) {
   const enrolled = db.course(a.courseId)?.studentIds.length ?? 0;
-  return { ...baseView(db, a), lectureId: a.lectureId, questions: a.questions, stats: summarize(db.submissionsFor(a.id), enrolled) };
+  const subs = db.submissionsFor(a.id);
+  return {
+    ...baseView(db, a),
+    lectureId: a.lectureId,
+    questions: a.questions,
+    stats: summarize(subs, enrolled),
+    // Who has taken it, most recent first.
+    submittedBy: [...subs]
+      .sort((x, y) => y.submittedAt.localeCompare(x.submittedAt))
+      .map((x) => ({ id: x.studentId, name: db.user(x.studentId)?.name ?? 'Unknown' })),
+  };
 }
 
 export function assignmentsRouter({ db, hub }) {

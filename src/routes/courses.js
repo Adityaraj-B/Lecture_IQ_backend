@@ -60,6 +60,7 @@ export function coursesRouter({ db, hub }) {
     if (!course) return res.status(404).json({ error: 'No class found with that code' });
     if (!course.studentIds.includes(req.user.id)) {
       course.studentIds.push(req.user.id);
+      course.joinedAt = { ...course.joinedAt, [req.user.id]: new Date().toISOString() };
       db.save();
       hub.send([course.professorId], 'course.joined', {
         courseId: course.id,
