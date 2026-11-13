@@ -48,7 +48,14 @@ export const config = {
   },
   gemini: {
     apiKey: env.GEMINI_API_KEY || '',
-    model: env.GEMINI_MODEL || 'gemini-2.5-flash',
+    /** Tried in order; the next one is used when a model is retired, overloaded or rate-limited. */
+    models: [
+      ...new Set(
+        [env.GEMINI_MODEL, ...(env.GEMINI_FALLBACK_MODELS ?? 'gemini-3.5-flash,gemini-3.8-flash,gemini-3.5-flash-lite').split(',')]
+          .map((m) => m?.trim())
+          .filter(Boolean),
+      ),
+    ],
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
   },
   limits: {
@@ -61,7 +68,7 @@ export function describeConfig() {
   return {
     groq: Boolean(config.groq.apiKey),
     gemini: Boolean(config.gemini.apiKey),
-    geminiModel: config.gemini.model,
+    geminiModels: config.gemini.models,
     storage: config.mongo.uri ? 'mongodb' : 'file',
     appKeyRequired: Boolean(config.appKey),
     facultyCodeRequired: Boolean(config.auth.facultyCode),

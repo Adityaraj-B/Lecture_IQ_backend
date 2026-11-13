@@ -10,7 +10,7 @@ export const quizRouter = Router();
 const shouldFallBack = (err) =>
   err instanceof SyntaxError || // bad JSON
   err.name === 'TimeoutError' ||
-  [429, 500, 502, 503, 504].includes(err.status);
+  [404, 408, 429, 500, 502, 503, 504].includes(err.status); // 404: model retired
 
 /** POST /v1/quiz  { transcript, count?, difficulty?, subject? } */
 quizRouter.post('/', async (req, res, next) => {
