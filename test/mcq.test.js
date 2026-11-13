@@ -68,6 +68,14 @@ test('buildPrompt includes subject and caps tail', () => {
   assert.ok(p.length < 700);
 });
 
+test('buildPrompt stays under Groq\'s 896-byte limit for Hindi script', () => {
+  const hindi = 'आज हम deadlock के बारे में पढ़ेंगे जब processes एक दूसरे का wait करते हैं। '.repeat(40);
+  const p = buildPrompt('ऑपरेटिंग सिस्टम '.repeat(10), hindi);
+  assert.ok(Buffer.byteLength(p, 'utf8') <= 896, `${Buffer.byteLength(p, 'utf8')} bytes`);
+  assert.ok(!p.includes('�')); // no character split in half
+  assert.ok(p.endsWith('करते हैं।')); // keeps the most recent words
+});
+
 test('detectLanguage tells English, Hindi and Hinglish apart', async () => {
   const { detectLanguage } = await import('../src/services/language.js');
   assert.equal(detectLanguage('Today we study deadlocks and how the operating system avoids them in practice.'), 'en');

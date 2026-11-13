@@ -2,8 +2,10 @@ import { config } from '../config.js';
 import { UpstreamError, readError } from './errors.js';
 import { detectLanguage } from './language.js';
 
-// Whisper's prompt window is 224 tokens; ~150 tokens of context ≈ 600 chars.
-const PROMPT_TAIL_CHARS = 600;
+// Groq rejects prompts over 896 UTF-8 bytes. Hindi script is 3 bytes per character, so the
+// budget is counted in bytes, with headroom. 600 bytes of English is ~150 tokens of context.
+const PROMPT_MAX_BYTES = 800;
+const PROMPT_TAIL_BYTES = 600;
 
 const NO_SPEECH_MAX = 0.6;
 const LOGPROB_MIN = -1;
@@ -17,12 +19,22 @@ const KNOWN_HALLUCINATIONS = [
   /^you$/i,
 ];
 
+const utf8Bytes = (s) => Buffer.byteLength(s, 'utf8');
+
+/** The end of [text] that fits in [maxBytes], starting at a word boundary when cut. */
+function tailWithin(text, maxBytes) {
+  const chars = [...text]; // code points, so multi-byte characters are never split
+  let bytes = 0;
+  let start = chars.length;
+  while (start > 0 && bytes + utf8Bytes(chars[start - 1]) <= maxBytes) bytes += utf8Bytes(chars[--start]);
+  const tail = chars.slice(start).join('');
+  return start > 0 ? tail.replace(/^\S*\s/, '') : tail;
+}
+
 export function buildPrompt(subject, previousText) {
-  const tail = (previousText || '').slice(-PROMPT_TAIL_CHARS);
-  // Start the tail at a word boundary so the prompt doesn't begin mid-word.
-  const trimmedTail = tail.length === PROMPT_TAIL_CHARS ? tail.replace(/^\S*\s/, '') : tail;
-  const head = subject ? `Lecture on ${subject}.` : '';
-  return [head, trimmedTail].filter(Boolean).join(' ').trim();
+  const head = subject ? tailWithin(`Lecture on ${subject}.`, PROMPT_MAX_BYTES - PROMPT_TAIL_BYTES) : '';
+  const tail = tailWithin((previousText || '').trim(), Math.min(PROMPT_TAIL_BYTES, PROMPT_MAX_BYTES - utf8Bytes(head) - 1));
+  return [head, tail].filter(Boolean).join(' ').trim();
 }
 
 /** Drops likely hallucinated segments and repetition loops. */
