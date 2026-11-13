@@ -2,10 +2,10 @@ import { Router } from 'express';
 import { config } from '../config.js';
 import { dailyQuota } from '../middleware/quota.js';
 import { requireRole } from '../middleware/session.js';
+import { detectLanguage } from '../services/language.js';
 import * as notesAi from '../services/notes.js';
 import { newId } from '../store/db.js';
 
-const LANGUAGES = ['en', 'hi', 'hinglish'];
 const MAX_SECTIONS = 60; // 5 hours of 5-minute chunks
 
 /** List view: everything but the transcript, which can be tens of KB. */
@@ -63,7 +63,7 @@ export function notesRouter({ db, hub, ai = notesAi }) {
   /**
    * POST /v1/notes  (professor): shares a lecture with a class. One AI call writes the
    * summary, key points and flashcards; sharing the same lecture again replaces them.
-   * { courseId, lectureId, title, subject?, language, recordedAt?, durationMs?, sections: [{ startMs, text }] }
+   * { courseId, lectureId, title, subject?, recordedAt?, durationMs?, sections: [{ startMs, text }] }
    */
   router.post('/', requireRole('professor'), dailyQuota('sharing lecture notes', 40), async (req, res, next) => {
     try {
@@ -90,7 +90,7 @@ export function notesRouter({ db, hub, ai = notesAi }) {
         lectureId,
         title: String(req.body.title ?? '').trim().slice(0, 120) || subject || 'Lecture notes',
         subject,
-        language: LANGUAGES.includes(req.body.language) ? req.body.language : 'en',
+        language: detectLanguage(transcript), // students see the raw transcript only for English lectures
         recordedAt: req.body.recordedAt ? new Date(req.body.recordedAt).toISOString() : null,
         durationMs: Math.max(0, Math.round(Number(req.body.durationMs) || 0)),
         sections,

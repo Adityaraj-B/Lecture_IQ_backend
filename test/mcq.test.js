@@ -67,3 +67,12 @@ test('buildPrompt includes subject and caps tail', () => {
   assert.ok(p.startsWith('Lecture on Operating Systems.'));
   assert.ok(p.length < 700);
 });
+
+test('detectLanguage tells English, Hindi and Hinglish apart', async () => {
+  const { detectLanguage } = await import('../src/services/language.js');
+  assert.equal(detectLanguage('Today we study deadlocks and how the operating system avoids them in practice.'), 'en');
+  assert.equal(detectLanguage('आज हम deadlock के बारे में पढ़ेंगे, यह तब होता है जब processes एक दूसरे का wait करते हैं।'), 'hi');
+  assert.equal(detectLanguage('Toh aaj hum deadlock padhenge, matlab jab do process ek dusre ka wait karte hain.'), 'hinglish');
+  assert.equal(detectLanguage('Process scheduling uses a ready queue so that every core has work to do.'), 'en');
+  assert.equal(detectLanguage('ok'), 'en');
+});

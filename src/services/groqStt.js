@@ -1,5 +1,6 @@
 import { config } from '../config.js';
 import { UpstreamError, readError } from './errors.js';
+import { detectLanguage } from './language.js';
 
 // Whisper's prompt window is 224 tokens; ~150 tokens of context ≈ 600 chars.
 const PROMPT_TAIL_CHARS = 600;
@@ -16,16 +17,12 @@ const KNOWN_HALLUCINATIONS = [
   /^you$/i,
 ];
 
-/** Lecture language modes the app offers; Hinglish has no ISO code, so it is auto-detect plus a style prompt. */
-export const LANGUAGES = { en: 'en', hi: 'hi', hinglish: null };
-const HINGLISH_HINT = 'Hinglish lecture, Hindi aur English mixed, Roman script mein.';
-
-export function buildPrompt(subject, previousText, language) {
+export function buildPrompt(subject, previousText) {
   const tail = (previousText || '').slice(-PROMPT_TAIL_CHARS);
   // Start the tail at a word boundary so the prompt doesn't begin mid-word.
   const trimmedTail = tail.length === PROMPT_TAIL_CHARS ? tail.replace(/^\S*\s/, '') : tail;
   const head = subject ? `Lecture on ${subject}.` : '';
-  return [language === 'hinglish' ? HINGLISH_HINT : '', head, trimmedTail].filter(Boolean).join(' ').trim();
+  return [head, trimmedTail].filter(Boolean).join(' ').trim();
 }
 
 /** Drops likely hallucinated segments and repetition loops. */
@@ -45,7 +42,8 @@ export function filterSegments(segments) {
   return kept;
 }
 
-export async function transcribe({ buffer, filename, mimetype, subject, previousText, language }) {
+/** No `language` is sent, so Whisper auto-detects English, Hindi or Hinglish speech. */
+export async function transcribe({ buffer, filename, mimetype, subject, previousText }) {
   if (!config.groq.apiKey) throw new UpstreamError('GROQ_API_KEY is not configured', { status: 503 });
 
   const form = new FormData();
@@ -53,9 +51,8 @@ export async function transcribe({ buffer, filename, mimetype, subject, previous
   form.append('model', config.groq.sttModel);
   form.append('response_format', 'verbose_json');
   form.append('temperature', '0');
-  const prompt = buildPrompt(subject, previousText, language);
+  const prompt = buildPrompt(subject, previousText);
   if (prompt) form.append('prompt', prompt);
-  if (LANGUAGES[language]) form.append('language', LANGUAGES[language]);
 
   const res = await fetch(`${config.groq.baseUrl}/audio/transcriptions`, {
     method: 'POST',
@@ -67,10 +64,11 @@ export async function transcribe({ buffer, filename, mimetype, subject, previous
 
   const data = await res.json();
   const segments = filterSegments(data.segments);
+  const text = segments.map((s) => s.text).join(' ').replace(/\s+/g, ' ').trim();
   return {
-    text: segments.map((s) => s.text).join(' ').replace(/\s+/g, ' ').trim(),
+    text,
     segments,
-    language: data.language || null,
+    language: detectLanguage(text),
     duration: data.duration ?? null,
   };
 }

@@ -63,7 +63,7 @@ test('lecture notes: shared once, readable by the class, English-only transcript
   const course = (await call('POST', '/v1/courses', { token: prof.token, body: { name: 'OS' } })).body.course;
   await call('POST', '/v1/courses/join', { token: stu.token, body: { code: course.code } });
 
-  const share = (lectureId, language, extra = {}) =>
+  const share = (lectureId, text = words(40, 'deadlock'), extra = {}) =>
     call('POST', '/v1/notes', {
       token: prof.token,
       body: {
@@ -71,20 +71,19 @@ test('lecture notes: shared once, readable by the class, English-only transcript
         lectureId,
         title: 'Deadlocks',
         subject: 'OS',
-        language,
         sections: [
-          { startMs: 0, text: words(40, 'deadlock') },
+          { startMs: 0, text },
           { startMs: 300000, text: words(40, 'paging') },
         ],
         ...extra,
       },
     });
 
-  assert.equal((await share('l1', 'en', { sections: [{ startMs: 0, text: 'too short' }] })).status, 400);
-  const first = await share('l1', 'en');
+  assert.equal((await share('l1', undefined, { sections: [{ startMs: 0, text: 'too short' }] })).status, 400);
+  const first = await share('l1');
   assert.equal(first.status, 201);
   assert.equal(first.body.note.summary, 'About OS.');
-  const again = await share('l1', 'en'); // re-sharing replaces, doesn't duplicate
+  const again = await share('l1'); // re-sharing replaces, doesn't duplicate
   assert.equal(again.status, 200);
   assert.equal(again.body.note.id, first.body.note.id);
 
@@ -95,8 +94,12 @@ test('lecture notes: shared once, readable by the class, English-only transcript
   assert.equal(detail.sections.length, 2);
   assert.equal(detail.flashcards[0].front, 'What is circular wait?');
 
-  // Hindi lecture: notes are English, but the raw transcript is never sent to the app.
-  const hindi = (await share('l2', 'hi')).body.note;
+  assert.equal(first.body.note.language, 'en');
+
+  // Hinglish lecture (detected, never declared): notes are English, the raw transcript never reaches the app.
+  const hinglish = 'toh deadlock kya hota hai, matlab jab do process ek dusre ka wait karte hain aur koi aage nahi badhta. ';
+  const hindi = (await share('l2', hinglish.repeat(6))).body.note;
+  assert.equal(hindi.language, 'hinglish');
   assert.equal(hindi.sections, null);
   assert.equal((await call('GET', `/v1/notes/${hindi.id}`, { token: stu.token })).body.note.sections, null);
 
