@@ -1,41 +1,45 @@
-'use strict';
+import { timingSafeEqual } from 'node:crypto';
+import rateLimit from 'express-rate-limit';
+import { config } from '../config.js';
 
-const jwt = require('jsonwebtoken');
-const { createError } = require('./errorHandler');
-
-/**
- * requireAuth — verifies JWT and attaches req.user = { id, role, email }
- * Expects header: Authorization: Bearer <token>
- */
-function requireAuth(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'No token provided' });
-  }
-
-  const token = authHeader.slice(7); // strip "Bearer "
-  try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = { id: payload.id, role: payload.role };
-    next();
-  } catch (err) {
-    return res.status(401).json({ error: 'Invalid or expired token' });
-  }
+function safeEqual(a, b) {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  return ab.length === bb.length && timingSafeEqual(ab, bb);
 }
 
-/**
- * requireRole(role | role[]) — role-gate factory.
- * Must be used AFTER requireAuth in the middleware chain.
- * Usage: router.post('/start', requireAuth, requireRole('professor'), handler)
- */
-function requireRole(...roles) {
-  const allowed = roles.flat();
-  return function (req, res, next) {
-    if (!req.user || !allowed.includes(req.user.role)) {
-      return res.status(403).json({ error: 'Forbidden — insufficient role' });
-    }
-    next();
-  };
+/** Keeps casual traffic off the free quota. Replace with Firebase Auth after the pitch. */
+export function requireAppKey(req, res, next) {
+  if (!config.appKey) return next();
+  const key = req.get('x-app-key') || '';
+  if (!safeEqual(key, config.appKey)) {
+    return res.status(401).json({ error: 'Invalid or missing x-app-key' });
+  }
+  next();
 }
 
-module.exports = { requireAuth, requireRole };
+// A 45-min lecture = 9 transcribe calls; leave headroom for retries.
+export const transcribeLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 20,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Too many uploads, slow down' },
+});
+
+// Slows password guessing; a class signing up at once stays well under it.
+export const authLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 20,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Too many sign-in attempts, wait a minute' },
+});
+
+export const quizLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 5,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Too many quiz requests, slow down' },
+});

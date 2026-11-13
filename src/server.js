@@ -1,44 +1,30 @@
-'use strict';
+import path from 'node:path';
+import { createApp } from './app.js';
+import { config, describeConfig } from './config.js';
+import { Db } from './store/db.js';
+import { fileStore } from './store/fileStore.js';
+import { mongoStore } from './store/mongoStore.js';
 
-require('dotenv').config();
+const store = config.mongo.uri
+  ? await mongoStore(config.mongo.uri, config.mongo.dbName)
+  : fileStore(path.join(config.dataDir, 'db.json'));
+const db = await Db.open(store);
+const app = createApp({ db, secret: config.auth.secret });
 
-const app = require('./app');
-const { connectDB } = require('./config/db');
-
-const PORT = process.env.PORT || 3000;
-
-async function start() {
-  try {
-    await connectDB();
-    const isProduction = process.env.NODE_ENV === 'production';
-    app.listen(PORT, () => {
-      if (isProduction) {
-        console.log(`[Server] LectureIQ backend running on port ${PORT} (production)`);
-      } else {
-        console.log(`[Server] LectureIQ backend running on http://localhost:${PORT}`);
-      }
-      console.log(`[Server] Environment: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`[Server] STT Provider: ${process.env.STT_PROVIDER || 'mock'}`);
-      console.log(`[Server] LLM Provider: ${process.env.LLM_PROVIDER || 'mock'}`);
-    });
-
-    // ── Start BullMQ workers in-process ────────────────────────────────────────
-    // All three workers share the same Node.js process as the HTTP server.
-    // This is fine for development and single-instance deployments.
-    // For production scale, move each worker to a dedicated process/container.
-    const { startWorker: startTranscribeWorker } = require('./workers/transcribeChunkWorker');
-    const { startWorker: startAssembleWorker } = require('./workers/assembleTranscriptWorker');
-    const { startWorker: startMCQWorker } = require('./workers/generateMCQsWorker');
-
-    await startTranscribeWorker();
-    await startAssembleWorker();
-    await startMCQWorker();
-
-    console.log('[Server] ✅ All BullMQ workers started');
-  } catch (err) {
-    console.error('[Server] Failed to start:', err);
-    process.exit(1);
+const server = app.listen(config.port, () => {
+  console.log(`lecture-iq api listening on :${config.port}`, describeConfig());
+  if (!config.auth.secretConfigured) {
+    console.warn('[auth] AUTH_SECRET not set: using a random key, so everyone is signed out on restart');
   }
-}
+  if (!config.mongo.uri) console.log(`[db] using local file storage in ${config.dataDir}/`);
+});
 
-start();
+// Render sends SIGTERM on redeploy and when the free instance sleeps: finish pending writes first.
+for (const signal of ['SIGTERM', 'SIGINT']) {
+  process.on(signal, async () => {
+    server.close();
+    server.closeAllConnections(); // open live-event streams would otherwise hold the server open
+    await db.close();
+    process.exit(0);
+  });
+}

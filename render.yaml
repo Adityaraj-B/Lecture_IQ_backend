@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: lecture-iq-api
+    runtime: node
+    plan: free
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: DEMO_MODE
+        value: "true"
+      - key: FACULTY_CODE
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
