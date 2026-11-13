@@ -16,7 +16,14 @@ const server = app.listen(config.port, () => {
   if (!config.auth.secretConfigured) {
     console.warn('[auth] AUTH_SECRET not set: using a random key, so everyone is signed out on restart');
   }
-  if (!config.mongo.uri) console.log(`[db] using local file storage in ${config.dataDir}/`);
+  if (!config.mongo.uri) {
+    // Render sets RENDER=true. Its disk is wiped on every sleep and redeploy, so a file there loses everything.
+    if (process.env.RENDER) {
+      console.warn('[db] WARNING: MONGODB_URI is not set. Data is stored on Render\'s temporary disk and will be LOST on the next sleep or deploy.');
+    } else {
+      console.log(`[db] using local file storage in ${config.dataDir}/`);
+    }
+  }
 });
 
 // Render sends SIGTERM on redeploy and when the free instance sleeps: finish pending writes first.
