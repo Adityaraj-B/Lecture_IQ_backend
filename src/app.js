@@ -7,12 +7,14 @@ import { assignmentsRouter } from './routes/assignments.js';
 import { authRouter } from './routes/auth.js';
 import { analyticsRouter, eventsRouter } from './routes/classroom.js';
 import { coursesRouter } from './routes/courses.js';
+import { notesRouter } from './routes/notes.js';
+import { practiceRouter } from './routes/practice.js';
 import { studentsRouter } from './routes/students.js';
 import { quizRouter } from './routes/quiz.js';
 import { transcribeRouter } from './routes/transcribe.js';
 import { EventHub } from './services/events.js';
 
-export function createApp({ db, secret, hub = new EventHub() }) {
+export function createApp({ db, secret, hub = new EventHub(), ai }) {
   const app = express();
   app.set('trust proxy', 1); // Render sits behind one proxy; needed for per-IP rate limits
   app.disable('x-powered-by');
@@ -34,6 +36,8 @@ export function createApp({ db, secret, hub = new EventHub() }) {
   app.use('/v1/assignments', session, assignmentsRouter({ db, hub }));
   app.use('/v1/analytics', session, analyticsRouter({ db }));
   app.use('/v1/students', session, studentsRouter({ db }));
+  app.use('/v1/notes', session, notesRouter({ db, hub, ai }));
+  app.use('/v1/practice', session, practiceRouter({ db }));
   app.use('/v1/events', session, eventsRouter({ hub }));
 
   app.use((_req, res) => res.status(404).json({ error: 'Not found' }));

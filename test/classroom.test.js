@@ -8,9 +8,13 @@ import { Db } from '../src/store/db.js';
 const SECRET = 'test-secret';
 let server;
 let base;
+let db;
+/** The running server's database, for tests that need to move the clock. */
+const serverDb = () => db;
 
 before(async () => {
-  const app = createApp({ db: await Db.open(null), secret: SECRET });
+  db = await Db.open(null);
+  const app = createApp({ db, secret: SECRET });
   await new Promise((r) => (server = app.listen(0, r)));
   base = `http://127.0.0.1:${server.address().port}`;
 });
@@ -92,7 +96,7 @@ test('professor publishes, student receives it live, submits, professor sees res
   await stuEvents.next('ready');
   const pub = await call('POST', '/v1/assignments', {
     token: P,
-    body: { courseId: course.body.course.id, title: 'Week 1', lectureId: 'lec1', questions: QUESTIONS },
+    body: { courseId: course.body.course.id, title: 'Week 1', lectureId: 'lec1', questions: QUESTIONS, shuffle: false },
   });
   assert.equal(pub.status, 201);
   const { assignment: live } = await stuEvents.next('assignment.published');
@@ -258,7 +262,7 @@ test('professor student analytics: list, profile, weak topics, privacy', { timeo
   let n = 0;
   const q = (topic, answerIndex = 0) => ({ question: `About ${topic} #${++n}?`, options: ['w', 'x', 'y', 'z'], answerIndex, explanation: 'e', topic });
   const publish = async (token, courseId, title, questions) =>
-    (await call('POST', '/v1/assignments', { token, body: { courseId, title, questions } })).body.assignment;
+    (await call('POST', '/v1/assignments', { token, body: { courseId, title, questions, shuffle: false } })).body.assignment;
   const quiz1 = await publish(profA.token, courseA.id, 'Q1', [q('Sorting'), q('Graphs'), q('Graphs')]);
   const quiz2 = await publish(profA.token, courseA.id, 'Q2', [q('Sorting'), q('Graphs')]);
   await publish(profA.token, courseA.id, 'Q3 (nobody took it)', [q('Hashing')]);
@@ -277,7 +281,8 @@ test('professor student analytics: list, profile, weak topics, privacy', { timeo
   assert.equal(riaRow.rank, 2);
   assert.equal(riaRow.assigned, 3);
   assert.equal(riaRow.completed, 2);
-  assert.equal(riaRow.missed, 1);
+  assert.equal(riaRow.missed, 0); // no due date, so the untaken quiz is still open, not missed
+  assert.equal(riaRow.open, 1);
   assert.equal(riaRow.weakTopics[0].topic, 'Graphs');
   assert.equal(riaRow.weakTopics[0].accuracy, 0);
   assert.ok(riaRow.joinedAt === undefined && riaRow.courses[0].joinedAt); // join date recorded per class
@@ -307,4 +312,66 @@ test('professor student analytics: list, profile, weak topics, privacy', { timeo
   // Privacy: another professor can't open Sam (not in their classes); students can't use this at all.
   assert.equal((await call('GET', `/v1/students/${sam.user.id}`, { token: profB.token })).status, 404);
   assert.equal((await call('GET', '/v1/students', { token: ria.token })).status, 403);
+});
+
+test('per-student shuffle, due dates and time limits', { timeout: 10_000 }, async () => {
+  const reg = async (role, name, email) =>
+    (await call('POST', '/v1/auth/register', { body: { role, name, email, password: 'password1' } })).body;
+  const prof = await reg('professor', 'Prof S', 's@prof.edu');
+  const s1 = await reg('student', 'One', 'one@uni.edu');
+  const s2 = await reg('student', 'Two', 'two@uni.edu');
+  const course = (await call('POST', '/v1/courses', { token: prof.token, body: { name: 'Shuffle class' } })).body.course;
+  for (const s of [s1, s2]) await call('POST', '/v1/courses/join', { token: s.token, body: { code: course.code } });
+
+  const questions = Array.from({ length: 8 }, (_, i) => ({
+    question: `Q${i}?`,
+    options: [`right${i}`, `w${i}a`, `w${i}b`, `w${i}c`],
+    answerIndex: 0,
+    explanation: 'e',
+    topic: `T${i}`,
+  }));
+  const publish = (extra) => call('POST', '/v1/assignments', { token: prof.token, body: { courseId: course.id, title: 'S', questions, ...extra } });
+
+  // Validation.
+  assert.equal((await publish({ dueAt: '2001-01-01T00:00:00Z' })).status, 400);
+  assert.equal((await publish({ timeLimitMin: 0 })).status, 400);
+
+  const quiz = (await publish({ timeLimitMin: 10, dueAt: new Date(Date.now() + 3_600_000).toISOString() })).body.assignment;
+  assert.equal(quiz.timeLimitMin, 10);
+  assert.ok(quiz.shuffle);
+  const viewOf = async (s) => (await call('GET', '/v1/assignments', { token: s.token })).body.assignments.find((a) => a.id === quiz.id);
+  const v1 = await viewOf(s1);
+  const v2 = await viewOf(s2);
+  assert.notDeepEqual(v1.questions.map((q) => q.question), v2.questions.map((q) => q.question)); // different order per student
+  assert.deepEqual((await viewOf(s1)).questions, v1.questions); // but stable for the same student
+  assert.ok(v1.questions.every((q) => !('answerIndex' in q)));
+
+  // Start the clock, then answer everything right in the student's own order.
+  const started = (await call('POST', `/v1/assignments/${quiz.id}/start`, { token: s1.token })).body.assignment;
+  assert.ok(started.startedAt);
+  assert.ok(Date.parse(started.deadline) - Date.parse(started.startedAt) === 10 * 60_000);
+  const answers = v1.questions.map((q) => q.options.findIndex((o) => o.startsWith('right')));
+  const graded = (await call('POST', `/v1/assignments/${quiz.id}/submit`, { token: s1.token, body: { answers } })).body.assignment;
+  assert.equal(graded.submission.score, 8); // un-shuffled correctly on the server
+  assert.deepEqual(graded.submission.answers, answers); // shown back in the student's order
+  assert.ok(graded.questions.every((q, i) => q.options[q.answerIndex] === `right${q.question.slice(1, -1)}` && answers[i] === q.answerIndex));
+
+  // Analytics still see canonical answers: every question 100% for student one.
+  const results = (await call('GET', `/v1/assignments/${quiz.id}/results`, { token: prof.token })).body.results;
+  assert.ok(results.questions.every((q) => q.optionCounts[0] === 1));
+
+  // Time limit is enforced by the server: pretend student two started 20 minutes ago.
+  await call('POST', `/v1/assignments/${quiz.id}/start`, { token: s2.token });
+  const db = serverDb();
+  db.assignment(quiz.id).starts[s2.user.id] = new Date(Date.now() - 20 * 60_000).toISOString();
+  const late = await call('POST', `/v1/assignments/${quiz.id}/submit`, { token: s2.token, body: { answers: Array(8).fill(null) } });
+  assert.equal(late.status, 403);
+  assert.equal(late.body.code, 'time_up');
+
+  // Past the due date the quiz is closed and counts as missed.
+  db.assignment(quiz.id).dueAt = new Date(Date.now() - 10 * 60_000).toISOString();
+  assert.equal((await viewOf(s2)).closed, true);
+  assert.equal((await call('POST', `/v1/assignments/${quiz.id}/start`, { token: s2.token })).body.code, 'closed');
+  const profile = (await call('GET', `/v1/students/${s2.user.id}`, { token: prof.token })).body;
+  assert.equal(profile.stats.missed, 1);
 });

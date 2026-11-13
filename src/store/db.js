@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 
-export const COLLECTIONS = ['users', 'courses', 'assignments', 'submissions'];
+export const COLLECTIONS = ['users', 'courses', 'assignments', 'submissions', 'notes'];
 const empty = () => Object.fromEntries(COLLECTIONS.map((c) => [c, []]));
 
 export const newId = () => randomBytes(9).toString('base64url');
@@ -96,6 +96,15 @@ export class Db {
 
   submissionsFor(assignmentId) {
     return this.data.submissions.filter((s) => s.assignmentId === assignmentId);
+  }
+
+  note(id) {
+    return this.data.notes.find((n) => n.id === id);
+  }
+
+  notesInCourses(courseIds) {
+    const ids = new Set(courseIds);
+    return this.data.notes.filter((n) => ids.has(n.courseId));
   }
 
   submission(assignmentId, studentId) {

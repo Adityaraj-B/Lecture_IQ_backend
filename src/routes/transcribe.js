@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { config } from '../config.js';
-import { transcribe } from '../services/groqStt.js';
+import { LANGUAGES, transcribe } from '../services/groqStt.js';
 
 const upload = multer({
   storage: multer.memoryStorage(), // never touches disk
@@ -15,7 +15,7 @@ export const transcribeRouter = Router();
  *   file          audio chunk (.m4a)
  *   subject?      lecture subject, primes Whisper vocabulary
  *   previousText? tail of the previous chunk's transcript (continuity)
- *   language?     ISO-639-1; omit for auto-detect (handles Hinglish)
+ *   language?     en | hi | hinglish; omit for auto-detect
  */
 transcribeRouter.post('/', upload.single('file'), async (req, res, next) => {
   try {
@@ -27,7 +27,7 @@ transcribeRouter.post('/', upload.single('file'), async (req, res, next) => {
       mimetype: req.file.mimetype,
       subject: String(req.body.subject || '').slice(0, 120),
       previousText: String(req.body.previousText || '').slice(-2000),
-      language: String(req.body.language || '').slice(0, 5) || undefined,
+      language: Object.hasOwn(LANGUAGES, req.body.language) ? req.body.language : undefined,
     });
     res.json({ ...result, provider: 'groq', ms: Date.now() - started });
   } catch (err) {

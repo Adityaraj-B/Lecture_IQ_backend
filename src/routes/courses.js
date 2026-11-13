@@ -81,5 +81,48 @@ export function coursesRouter({ db, hub }) {
     res.json({ ok: true });
   });
 
+  /**
+   * GET /v1/courses/:id/gradebook.csv  (professor): one row per student, one column per
+   * quiz (score %, "missed" after the due date, blank while still open), then totals.
+   */
+  router.get('/:id/gradebook.csv', requireRole('professor'), (req, res) => {
+    const course = db.course(req.params.id);
+    if (!course || course.professorId !== req.user.id) return res.status(404).json({ error: 'Class not found' });
+
+    const quizzes = db.assignmentsInCourses([course.id]).sort((a, b) => a.publishedAt.localeCompare(b.publishedAt));
+    const students = course.studentIds
+      .map((id) => db.user(id))
+      .filter(Boolean)
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const now = Date.now();
+
+    const rows = [['Student', 'Email', ...quizzes.map((q) => q.title), 'Quizzes taken', 'Average %']];
+    for (const s of students) {
+      const cells = quizzes.map((q) => {
+        const sub = db.submission(q.id, s.id);
+        if (sub) return Math.round((sub.score / sub.total) * 100);
+        return q.dueAt && Date.parse(q.dueAt) < now ? 'missed' : '';
+      });
+      const scores = cells.filter((c) => typeof c === 'number');
+      const avg = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : '';
+      rows.push([s.name, s.email, ...cells, scores.length, avg]);
+    }
+
+    const safeName = course.name.replace(/[^\w-]+/g, '_').slice(0, 60) || 'class';
+    res.set({
+      'content-type': 'text/csv; charset=utf-8',
+      'content-disposition': `attachment; filename="${safeName}_gradebook.csv"`,
+    });
+    // BOM so Excel opens UTF-8 names correctly.
+    res.send('﻿' + rows.map((r) => r.map(csvCell).join(',')).join('\r\n'));
+  });
+
   return router;
+}
+
+/** Quotes a CSV cell when needed, and neutralises spreadsheet formulas (CSV injection). */
+function csvCell(v) {
+  let s = String(v ?? '');
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }

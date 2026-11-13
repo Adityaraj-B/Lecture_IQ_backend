@@ -157,7 +157,7 @@ const STRONG_FROM = 0.8;
  * Everything a professor sees about one student, limited to quizzes published in
  * `courses` (the professor's classes this student is in). Newest quiz first.
  */
-export function studentReport({ studentId, courses, assignments, submissionsOf }) {
+export function studentReport({ studentId, courses, assignments, submissionsOf, now = Date.now() }) {
   const courseName = new Map(courses.map((c) => [c.id, c.name]));
   const tally = topicTally();
   const mistakes = [];
@@ -181,6 +181,9 @@ export function studentReport({ studentId, courses, assignments, submissionsOf }
         classAverage: mean(subs.map(ratioOf)),
         classSubmitted: subs.length,
         submitted: Boolean(mine),
+        dueAt: a.dueAt ?? null,
+        // Not taken counts as missed only once the due date has passed; before that it is still open.
+        status: mine ? 'submitted' : a.dueAt && Date.parse(a.dueAt) < now ? 'missed' : 'open',
       };
       if (!mine) return entry;
 
@@ -224,7 +227,8 @@ export function studentReport({ studentId, courses, assignments, submissionsOf }
     stats: {
       assigned: history.length,
       completed: ratios.length,
-      missed: history.length - ratios.length,
+      missed: history.filter((h) => h.status === 'missed').length,
+      open: history.filter((h) => h.status === 'open').length,
       completion: history.length ? ratios.length / history.length : null,
       average: mean(ratios),
       // Class average on the same quizzes this student took: a fair comparison.

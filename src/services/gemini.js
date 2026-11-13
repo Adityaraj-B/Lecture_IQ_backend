@@ -8,38 +8,37 @@ export const isGeminiConfigured = () => Boolean(config.gemini.apiKey);
 const tryNextModel = (err) => err.name === 'TimeoutError' || [404, 429, 500, 502, 503, 504].includes(err.status);
 
 /**
- * One call for the whole lecture (a 45-min transcript fits easily in Gemini's context),
- * trying each configured model in turn. Google retires and throttles models often, so
- * no single model name is relied on.
+ * One JSON-producing Gemini call, trying each configured model in turn. Google retires
+ * and throttles models often, so no single model name is relied on.
  */
-export async function generateWithGemini(input) {
+export async function geminiJson({ system, prompt, schema, temperature = 0.4 }) {
   if (!isGeminiConfigured()) throw new UpstreamError('GEMINI_API_KEY is not configured', { status: 503 });
   let lastError;
   for (const model of config.gemini.models) {
     try {
-      return await generateWith(model, input);
+      return await callModel(model, { system, prompt, schema, temperature });
     } catch (err) {
       if (!tryNextModel(err)) throw err;
-      console.warn(`[quiz] ${model} unavailable (${err.message}); trying the next model`);
+      console.warn(`[llm] ${model} unavailable (${err.message}); trying the next model`);
       lastError = err;
     }
   }
   throw lastError;
 }
 
-async function generateWith(model, { transcript, count, difficulty, subject }) {
+/** Quiz generation: one call for the whole lecture (a 45-min transcript fits Gemini's context). */
+export const generateWithGemini = (input) =>
+  geminiJson({ system: SYSTEM_PROMPT, prompt: userPrompt(input), schema: GEMINI_SCHEMA });
+
+async function callModel(model, { system, prompt, schema, temperature }) {
   const url = `${config.gemini.baseUrl}/models/${encodeURIComponent(model)}:generateContent`;
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-goog-api-key': config.gemini.apiKey },
     body: JSON.stringify({
-      systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-      contents: [{ role: 'user', parts: [{ text: userPrompt({ transcript, count, difficulty, subject }) }] }],
-      generationConfig: {
-        temperature: 0.4,
-        responseMimeType: 'application/json',
-        responseSchema: GEMINI_SCHEMA,
-      },
+      systemInstruction: { parts: [{ text: system }] },
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: { temperature, responseMimeType: 'application/json', responseSchema: schema },
     }),
     signal: AbortSignal.timeout(75_000), // per model, so the whole chain fits in the app's 4-minute wait
   });

@@ -8,6 +8,10 @@ const DIFFICULTY_HINT = {
   hard: 'Mostly understanding and application: compare, predict, apply to a new example. Distractors are common misconceptions.',
 };
 
+/** Shared by every generator: lectures may be Hindi or Hinglish, but everything students see is English. */
+export const ENGLISH_ONLY = `- The lecture may be in English, Hindi (Devanagari) or Hinglish (Hindi and English mixed, often in Roman script).
+- ALWAYS write your output in clear English, whatever the lecture language. Translate Hindi or Hinglish content faithfully; keep technical terms in their standard English form.`;
+
 export const SYSTEM_PROMPT = `You write multiple-choice quiz questions from a university lecture transcript.
 Rules:
 - Use ONLY facts, definitions, examples and claims actually stated in the lecture. Never add outside knowledge.
@@ -19,7 +23,7 @@ Rules:
 - Never use "All of the above", "None of the above", "Both A and B" or similar.
 - Each explanation (1-2 sentences) refers back to what the lecturer said, e.g. "The lecturer explained that...".
 - "topic" is a 1-4 word label for the concept tested.
-- Write in the lecture's main language; for Hinglish lectures write in English.`;
+${ENGLISH_ONLY}`;
 
 export function userPrompt({ transcript, count, difficulty, subject, part }) {
   return [

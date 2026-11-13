@@ -6,7 +6,7 @@ import { SYSTEM_PROMPT, chunkTranscript, distribute, userPrompt } from './mcq.js
 const MAX_WAIT_S = 65;
 const MAX_ATTEMPTS = 4;
 
-async function callGroq(messages) {
+export async function callGroq(messages) {
   for (let attempt = 1; ; attempt++) {
     const res = await fetch(`${config.groq.baseUrl}/chat/completions`, {
       method: 'POST',

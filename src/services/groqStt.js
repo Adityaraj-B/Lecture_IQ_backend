@@ -16,12 +16,16 @@ const KNOWN_HALLUCINATIONS = [
   /^you$/i,
 ];
 
-export function buildPrompt(subject, previousText) {
+/** Lecture language modes the app offers; Hinglish has no ISO code, so it is auto-detect plus a style prompt. */
+export const LANGUAGES = { en: 'en', hi: 'hi', hinglish: null };
+const HINGLISH_HINT = 'Hinglish lecture, Hindi aur English mixed, Roman script mein.';
+
+export function buildPrompt(subject, previousText, language) {
   const tail = (previousText || '').slice(-PROMPT_TAIL_CHARS);
   // Start the tail at a word boundary so the prompt doesn't begin mid-word.
   const trimmedTail = tail.length === PROMPT_TAIL_CHARS ? tail.replace(/^\S*\s/, '') : tail;
   const head = subject ? `Lecture on ${subject}.` : '';
-  return [head, trimmedTail].filter(Boolean).join(' ').trim();
+  return [language === 'hinglish' ? HINGLISH_HINT : '', head, trimmedTail].filter(Boolean).join(' ').trim();
 }
 
 /** Drops likely hallucinated segments and repetition loops. */
@@ -49,9 +53,9 @@ export async function transcribe({ buffer, filename, mimetype, subject, previous
   form.append('model', config.groq.sttModel);
   form.append('response_format', 'verbose_json');
   form.append('temperature', '0');
-  const prompt = buildPrompt(subject, previousText);
+  const prompt = buildPrompt(subject, previousText, language);
   if (prompt) form.append('prompt', prompt);
-  if (language) form.append('language', language);
+  if (LANGUAGES[language]) form.append('language', LANGUAGES[language]);
 
   const res = await fetch(`${config.groq.baseUrl}/audio/transcriptions`, {
     method: 'POST',
