@@ -17,7 +17,7 @@ const DEFAULT_COUNT = 6;
 export function practiceRouter({ db }) {
   const router = Router();
 
-  router.post('/', requireRole('student'), dailyQuota('practice quizzes', 15), async (req, res, next) => {
+  router.post('/', requireRole('student'), dailyQuota({ db, key: 'practice', label: 'practice quizzes', limit: 15 }), async (req, res, next) => {
     try {
       const count = Math.min(10, Math.max(3, Number(req.body?.count) || DEFAULT_COUNT));
       const courses = db.coursesOf(req.user);

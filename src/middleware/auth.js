@@ -18,28 +18,40 @@ export function requireAppKey(req, res, next) {
   next();
 }
 
+const common = { windowMs: 60_000, standardHeaders: 'draft-7', legacyHeaders: false };
+
+/**
+ * Signed-in limits are counted per account, not per IP address: a whole class on campus
+ * Wi-Fi shares one IP, and must not use up each other's allowance.
+ */
+const perUser = (req) => (req.user ? `user:${req.user.id}` : `ip:${req.ip}`);
+
 // A 45-min lecture = 9 transcribe calls; leave headroom for retries.
 export const transcribeLimiter = rateLimit({
-  windowMs: 60_000,
+  ...common,
   limit: 20,
-  standardHeaders: 'draft-7',
-  legacyHeaders: false,
+  keyGenerator: perUser,
   message: { error: 'Too many uploads, slow down' },
 });
 
-// Slows password guessing; a class signing up at once stays well under it.
-export const authLimiter = rateLimit({
-  windowMs: 60_000,
-  limit: 20,
-  standardHeaders: 'draft-7',
-  legacyHeaders: false,
-  message: { error: 'Too many sign-in attempts, wait a minute' },
+export const quizLimiter = rateLimit({
+  ...common,
+  limit: 5,
+  keyGenerator: perUser,
+  message: { error: 'Too many quiz requests, slow down' },
 });
 
-export const quizLimiter = rateLimit({
-  windowMs: 60_000,
-  limit: 5,
-  standardHeaders: 'draft-7',
-  legacyHeaders: false,
-  message: { error: 'Too many quiz requests, slow down' },
+/** Sign-in routes are used before there is an account, so this one is per IP, and generous enough for a class signing up together. */
+export const authIpLimiter = rateLimit({
+  ...common,
+  limit: 300,
+  message: { error: 'Too many sign-in attempts from this network, wait a minute' },
+});
+
+/** Slows password guessing against any one account. */
+export const authAccountLimiter = rateLimit({
+  ...common,
+  limit: 20,
+  keyGenerator: (req) => `email:${String(req.body?.email ?? '').trim().toLowerCase()}`,
+  message: { error: 'Too many sign-in attempts, wait a minute' },
 });

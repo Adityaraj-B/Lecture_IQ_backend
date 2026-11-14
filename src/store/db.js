@@ -1,6 +1,10 @@
 import { randomBytes } from 'node:crypto';
 
-export const COLLECTIONS = ['users', 'courses', 'assignments', 'submissions', 'notes'];
+/**
+ * usage: per-user daily AI counters. lectures: professors' lecture backups.
+ * flashcards: students' spaced-repetition progress, one record per (student, note).
+ */
+export const COLLECTIONS = ['users', 'courses', 'assignments', 'submissions', 'notes', 'usage', 'lectures', 'flashcards'];
 const empty = () => Object.fromEntries(COLLECTIONS.map((c) => [c, []]));
 
 export const newId = () => randomBytes(9).toString('base64url');

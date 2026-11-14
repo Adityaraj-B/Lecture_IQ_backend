@@ -45,8 +45,14 @@ The free instance sleeps after ~15 idle minutes and takes about a minute to wake
 | `GET/POST /v1/notes` · `GET/DELETE /v1/notes/:id` · `POST /v1/notes/:id/ask` | Lecture notes: English summary, key points and flashcards (generated once per lecture), and Q&A answered from the lecture only. |
 | `POST /v1/practice` | Student: a private practice set on their weakest topics (reuses past questions when AI is unavailable). |
 | `GET /v1/analytics/overview` | Professor dashboard. |
+| `GET /v1/lectures` · `PUT /v1/lectures/:id` · `DELETE /v1/lectures/:id` | Professor: backup of their lectures (transcript, quiz, practice attempts; not audio). Restored on a new phone. |
+| `GET /v1/flashcards` · `PUT /v1/flashcards/:noteId` | Flashcard progress per lecture; each card keeps its latest review, so several phones can study. |
 | `GET /v1/events` | Server-Sent Events stream for the signed-in user. |
 
-AI-backed routes have per-user daily caps (notes 40, ask 30, practice 15) to stay inside free-tier quotas; over the cap they return 429 `daily_limit`.
+AI-backed routes have per-user daily caps (notes 40, ask 30, practice 15) to stay inside free-tier quotas; over the cap they return 429 `daily_limit`. The counts are stored in the database (`usage` collection), so a restart doesn't reset them.
 
-All `/v1` routes require `x-app-key` when `APP_KEY` is set; classroom routes need `Authorization: Bearer <token>`.
+Per-minute limits are counted per account, not per IP, so a class on one campus network doesn't share an allowance: transcribe 20/min and quiz 5/min per professor. Sign-in is limited to 300/min per IP and 20/min per email address.
+
+All `/v1` routes require `x-app-key` when `APP_KEY` is set. Every route except `/v1/auth/*` needs `Authorization: Bearer <token>`; `/v1/transcribe` and `/v1/quiz` are for professors only.
+
+Errors from the server or an AI provider are logged in full and returned to the app as a plain message (for example "The AI service is busy right now"), never the provider's raw error.

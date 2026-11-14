@@ -65,7 +65,7 @@ export function notesRouter({ db, hub, ai = notesAi }) {
    * summary, key points and flashcards; sharing the same lecture again replaces them.
    * { courseId, lectureId, title, subject?, recordedAt?, durationMs?, sections: [{ startMs, text }] }
    */
-  router.post('/', requireRole('professor'), dailyQuota('sharing lecture notes', 40), async (req, res, next) => {
+  router.post('/', requireRole('professor'), dailyQuota({ db, key: 'notes', label: 'sharing lecture notes', limit: 40 }), async (req, res, next) => {
     try {
       const course = db.course(req.body?.courseId);
       if (!course || course.professorId !== req.user.id) return res.status(404).json({ error: 'Class not found' });
@@ -120,7 +120,7 @@ export function notesRouter({ db, hub, ai = notesAi }) {
   });
 
   /** POST /v1/notes/:id/ask { question }: answered from this lecture only. */
-  router.post('/:id/ask', dailyQuota('questions to lectures', 30), async (req, res, next) => {
+  router.post('/:id/ask', dailyQuota({ db, key: 'ask', label: 'questions to lectures', limit: 30 }), async (req, res, next) => {
     try {
       const n = db.note(req.params.id);
       if (!visibleTo(req.user, n)) return res.status(404).json({ error: 'Notes not found' });
